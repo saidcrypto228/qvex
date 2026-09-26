@@ -1,50 +1,64 @@
-"""
-QVEX v10.7 — Менеджер удаленного управления торговлей (ChatOps Control Bus).
-Обеспечивает атомарную передачу команд между внешним Control Plane и торговым ядром.
-"""
 import json
 import logging
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
 from pydantic import BaseModel, Field
+from core.utils.helpers import atomic_write_json, safe_read_json
 
-logger = logging.getLogger("QVEX.ControlIPC")
+logger = logging.getLogger(__name__)
+
 
 class TradingControlState(BaseModel):
-    trading_enabled: bool = Field(default=True, description="Разрешение на открытие новых позиций")
-    panic_requested: bool = Field(default=False, description="Флаг экстренной ликвидации портфеля")
-    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    last_command_by: str = Field(default="system")
-    message: str = Field(default="Штатный режим")
+    """Каноническая модель состояния управления торговлей из Control Plane."""
+    trading_enabled: bool = Field(default=True, description="Флаг активности торговли")
+    panic_requested: bool = Field(default=False, description="Запрос экстренной ликвидации позиций")
+    last_command_by: str = Field(default="System", description="Инициатор последней команды")
+    message: str = Field(default="Штатный режим", description="Пояснение к текущему статусу")
+    updated_at: str = Field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat(),
+        description="Временная метка обновления"
+    )
+
 
 class ControlStateManager:
-    def __init__(self, filepath: str = "data/trading_control.json"):
-        self.path = Path(filepath).resolve()
+    """Управление состоянием торговли и перехват операторских сигналов."""
+
+    def __init__(self, path: Path | str):
+        self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
-            self.set_state(TradingControlState())
+            self._init_defaults()
+
+    def _init_defaults(self) -> None:
+        state = TradingControlState(
+            trading_enabled=True,
+            panic_requested=False,
+            last_command_by="System",
+            message="Инициализация по умолчанию",
+            updated_at=datetime.now(timezone.utc).isoformat()
+        )
+        self.set_state(state)
 
     def get_state(self) -> TradingControlState:
+        data = safe_read_json(self.path, fallback=None)
+        if data is None:
+            return TradingControlState()
         try:
-            if not self.path.exists():
-                return TradingControlState()
-            raw = self.path.read_text(encoding="utf-8")
-            return TradingControlState.model_validate_json(raw)
-        except Exception as e:
-            logger.error(f"Ошибка чтения флагов управления: {e}")
+            return TradingControlState.model_validate(data)
+        except Exception:
             return TradingControlState()
 
     def set_state(self, state: TradingControlState) -> None:
         state.updated_at = datetime.now(timezone.utc).isoformat()
-        temp_path = self.path.with_suffix(".tmp")
-        temp_path.write_text(state.model_dump_json(indent=2), encoding="utf-8")
-        temp_path.replace(self.path)
+        payload = json.loads(state.model_dump_json())
+        atomic_write_json(self.path, payload)
 
     def pause_trading(self, admin_tag: str = "Operator") -> TradingControlState:
         state = self.get_state()
         state.trading_enabled = False
         state.last_command_by = admin_tag
-        state.message = "Торговля приостановлена пользователем (новые сделки заблокированы)"
+        state.message = "Торговля приостановлена оператором (новые сделки заблокированы)"
         self.set_state(state)
         return state
 
@@ -52,20 +66,21 @@ class ControlStateManager:
         state = self.get_state()
         state.trading_enabled = True
         state.last_command_by = admin_tag
-        state.message = "Торговля активна (генерация сигналов включена)"
+        state.message = "Торговля активна (штатный режим)"
         self.set_state(state)
         return state
 
-    def trigger_panic(self, admin_tag: str = "Operator") -> TradingControlState:
+    def request_panic(self, admin_tag: str = "Operator") -> TradingControlState:
         state = self.get_state()
         state.panic_requested = True
         state.trading_enabled = False
         state.last_command_by = admin_tag
-        state.message = "АКТИВИРОВАН РЕЖИМ PANIC: экстренный сброс всех позиций!"
+        state.message = "ИНИЦИИРОВАНА ПАНИКА: Закрытие всех позиций и остановка"
         self.set_state(state)
         return state
 
-    def clear_panic(self) -> None:
+    def clear_panic(self) -> TradingControlState:
         state = self.get_state()
         state.panic_requested = False
         self.set_state(state)
+        return state

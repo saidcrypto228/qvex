@@ -57,3 +57,8 @@ archive/
 *.ipynb
 .env.*
 !.env.example
+_qvex_backups/
+
+*.tmp
+test_*.json
+results/stress_*

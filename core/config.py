@@ -85,3 +85,10 @@ MAX_PERP_DECIMALS = 6
 STOP_BUFFER_LIMIT_RATIO = 0.15
 ORDERFLOW_STALE_TIMEOUT_SEC = 15.0
 
+
+# --- Alpha Gate: Funding Rate Threshold ---
+MAX_ADVERSE_FUNDING_RATE = 0.0003  # 0.03% в час (~262% APR)
+
+# --- Alpha Execution: Maker-First Configuration ---
+ENABLE_MAKER_FIRST = True        # Пассивное выставление лимитных Alo заявок
+MAKER_TIMEOUT_SEC = 2.0         # Окно ожидания налития до маркет-фолбэка

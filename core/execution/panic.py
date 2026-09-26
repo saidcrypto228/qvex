@@ -28,7 +28,7 @@ class SlideToPanicEngine:
 
         # 1. Отмена всех активных лимитов и триггеров
         try:
-            await asyncio.to_thread(self.gateway.exchange.cancel_all_orders)
+            await self.gateway.cancel_all_orders()
             audit_trail["cancelled_orders"] = True
             logger.info("Все открытые ордера успешно аннулированы на бирже.")
         except Exception as cancel_exc:
@@ -61,7 +61,8 @@ class SlideToPanicEngine:
                         coin=coin,
                         is_buy=close_is_buy,
                         size=size,
-                        max_slippage=0.010
+                        max_slippage=0.010,
+                        reduce_only=True
                     )
                 )
 

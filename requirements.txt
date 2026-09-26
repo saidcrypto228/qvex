@@ -5,3 +5,5 @@ matplotlib>=3.7.0
 pyarrow>=12.0.0
 hyperliquid-python-sdk>=0.4.0
 eth-account>=0.10.0
+
+websockets>=12.0

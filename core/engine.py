@@ -287,8 +287,19 @@ class HyperliquidSwingBot:
             for coin in list(self.state['positions'].keys()):
                 if coin not in actual_positions:
                     logger.warning(
-                        f'[RECONCILE] Позиция {coin} закрыта.'
+                        f'[RECONCILE] Позиция {coin} закрыта на бирже. Очистка локального стейта...'
                     )
+                    # Отмена всех оставшихся ордеров/стопов по монете во избежание фантомных входов
+                    if self.exchange:
+                        coin_orders = [o for o in open_orders if o.get("coin") == coin]
+                        for o in coin_orders:
+                            oid = o.get("oid")
+                            if oid:
+                                try:
+                                    self.exchange.cancel(coin, oid)
+                                    logger.info(f"[RECONCILE] Снят осиротевший ордер/стоп {oid} по {coin}")
+                                except Exception as c_err:
+                                    logger.warning(f"[RECONCILE] Не удалось снять ордер {oid}: {c_err}")
                     del self.state['positions'][coin]
                     self.save_state()
                 else:
@@ -347,23 +358,24 @@ class HyperliquidSwingBot:
     def get_orderflow_metrics(self, coin: str) -> dict:
         state_file = config.DATA_DIR / "orderflow_state.json"
         if not state_file.exists():
-            return {"cvd_ratio": 0.0, "cvd_usd": 0.0, "obi_10": 0.0, "last_px": 0.0, "is_fresh": False}
+            return {"cvd_ratio": 0.0, "cvd_usd": 0.0, "obi_10": 0.0, "delta_oi_z": 0.0, "funding_rate": 0.0, "last_px": 0.0, "is_fresh": False}
         try:
             with open(state_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
             if time.time() - data.get("timestamp", 0) > config.ORDERFLOW_STALE_TIMEOUT_SEC:
-                return {"cvd_ratio": 0.0, "cvd_usd": 0.0, "obi_10": 0.0, "last_px": 0.0, "is_fresh": False}
+                return {"cvd_ratio": 0.0, "cvd_usd": 0.0, "obi_10": 0.0, "delta_oi_z": 0.0, "funding_rate": 0.0, "last_px": 0.0, "is_fresh": False}
             coin_data = data.get("coins", {}).get(coin, {})
             return {
                 "cvd_ratio": coin_data.get("cvd_ratio", 0.0),
                 "cvd_usd": coin_data.get("cvd_usd", 0.0),
                 "obi_10": coin_data.get("obi_10", 0.0),
                 "delta_oi_z": coin_data.get("delta_oi_z", 0.0),
+                "funding_rate": float(coin_data.get("funding_rate", 0.0)),
                 "last_px": coin_data.get("last_px", 0.0),
                 "is_fresh": True
             }
         except Exception:
-            return {"cvd_ratio": 0.0, "cvd_usd": 0.0, "obi_10": 0.0, "last_px": 0.0, "is_fresh": False}
+            return {"cvd_ratio": 0.0, "cvd_usd": 0.0, "obi_10": 0.0, "delta_oi_z": 0.0, "funding_rate": 0.0, "last_px": 0.0, "is_fresh": False}
 
     def get_portfolio_equity(self) -> float:
         if self.exchange and not self.address.startswith("0x000"):
@@ -396,7 +408,7 @@ class HyperliquidSwingBot:
             return None
 
         # 2. Расчет допустимого нотионала по риску
-        effective_trade_risk = risk_pct if risk_pct is not None else 0.025
+        effective_trade_risk = risk_pct if risk_pct is not None else getattr(config, 'BASE_RISK_PER_TRADE', 0.0100)
         risk_based_notional = (equity * effective_trade_risk) / sl_dist_pct
         max_notional_by_budget = remaining_risk_budget / sl_dist_pct
 
@@ -507,6 +519,15 @@ class HyperliquidSwingBot:
             return
 
         try:
+            # P0 Fix: Обязательная отмена защитного стопа перед закрытием (исключение инверсии позиции)
+            existing_oid = self.state.get("positions", {}).get(coin, {}).get("stop_oid")
+            if existing_oid:
+                try:
+                    self.exchange.cancel(coin=coin, oid=existing_oid)
+                    logger.info(f"[✓] Защитный стоп {coin} (OID {existing_oid}) отменен перед закрытием.")
+                except Exception as cancel_err:
+                    logger.warning(f"[-] Не удалось отменить стоп {coin} перед выходом: {cancel_err}")
+
             resp = self.exchange.market_close(coin=coin)
             if resp.get("status") != "ok":
                 logger.critical(f"[CLOSE REJECTED] Ошибка market_close {coin}: {resp}")
@@ -573,7 +594,7 @@ class HyperliquidSwingBot:
             ]
 
             model_file = config.DATA_DIR / "meta_model.json"
-            feat_cnt = len(self.meta_weights.get("weights", [])) if isinstance(self.meta_weights, dict) else 0
+            feat_cnt = len(self.feature_cols) if (getattr(self, "meta_weights", False) and hasattr(self, "feature_cols") and self.feature_cols is not None) else (len(self.weights) if (getattr(self, "meta_weights", False) and hasattr(self, "weights") and self.weights is not None) else 0)
             m_status = ModelStatus(
                 loaded=bool(self.meta_weights),
                 model_path=str(model_file) if model_file.exists() else None,
@@ -630,9 +651,9 @@ class HyperliquidSwingBot:
         btc_slope_rel = last_btc["ema50_slope"] / max(last_btc["close"] * 0.01, 1e-4)
 
         if (btc_bull and btc_slope_rel > 0.15) or (btc_bear and btc_slope_rel < -0.25):
-            self.active_slots_limit = 2
+            self.active_slots_limit = config.EXPANDED_CONCURRENT_POSITIONS
         else:
-            self.active_slots_limit = 2
+            self.active_slots_limit = config.BASE_CONCURRENT_POSITIONS
 
         regime_str = f"BULL (SLOTS: {self.active_slots_limit})" if btc_bull else "BEAR/CHOP (SLOTS: 2)"
         active_pos_cnt = len(self.state.get("positions", {}))
@@ -767,6 +788,18 @@ class HyperliquidSwingBot:
                     del self.pending_triggers[coin]
                     continue
 
+                # 4. Funding Rate Cost Gate (запрет входа против экстремального фандинга)
+                funding_val = of_m.get("funding_rate", 0.0)
+                max_adverse_funding = getattr(config, "MAX_ADVERSE_FUNDING_RATE", 0.0003)
+                if is_long and funding_val > max_adverse_funding:
+                    logger.warning(f"[FUNDING RATE GATE] {coin}: Аномально высокий Long фандинг ({funding_val*100:.4f}% > {max_adverse_funding*100:.4f}%). Вход отклонен.")
+                    del self.pending_triggers[coin]
+                    continue
+                elif not is_long and funding_val < -max_adverse_funding:
+                    logger.warning(f"[FUNDING RATE GATE] {coin}: Экстремально отрицательный Short фандинг ({funding_val*100:.4f}% < -{max_adverse_funding*100:.4f}%). Вход отклонен.")
+                    del self.pending_triggers[coin]
+                    continue
+
                 sizing = self.calculate_sizing(coin, trig["trigger_px"], trig["sl_px"], ml_prob=trig["ml_prob"], committed_notional=committed_notional)
                 if not sizing:
                     del self.pending_triggers[coin]
@@ -783,28 +816,73 @@ class HyperliquidSwingBot:
                         pass
 
                     order_cloid = Cloid.from_str("0x" + uuid.uuid4().hex[:32])
-                    logger.info(f"[*] Отправка Market Open: {coin} {sizing['sz']} (cloid: {order_cloid})...")
+                    filled_via_maker = False
 
-                    try:
-                        entry_resp = self.exchange.market_open(name=coin, is_buy=is_long, sz=sizing["sz"], px=None, slippage=config.ENTRY_SLIPPAGE, cloid=order_cloid)
-                    except Exception as e:
-                        logger.error(f"[ENTRY NETWORK ERROR] {coin}: {e}")
-                        del self.pending_triggers[coin]
-                        continue
+                    # Alpha 3.3: Maker-first исполнение (Alo / Post-Only со сдвигом по OBI)
+                    if getattr(config, "ENABLE_MAKER_FIRST", True):
+                        try:
+                            coin_meta = self.universe_meta.get(coin, {})
+                            sz_dec = coin_meta.get("szDecimals", 3)
+                            # Сдвиг котировки по OBI стакана
+                            obi_shift = 0.0001 * (1.0 + max(-0.5, min(0.5, obi_val)))
+                            maker_limit = current_px * (1.0 - obi_shift) if is_long else current_px * (1.0 + obi_shift)
+                            clean_maker_px = PrecisionEngine.round_px(maker_limit, sz_dec, is_buy_stop=not is_long)
 
-                    if entry_resp.get("status") != "ok":
-                        del self.pending_triggers[coin]
-                        continue
+                            logger.info(f"[*] [MAKER-FIRST] Размещение Alo заявки: {coin} {sizing['sz']} @ ${clean_maker_px}...")
+                            maker_resp = self.exchange.order(
+                                name=coin,
+                                is_buy=is_long,
+                                sz=sizing["sz"],
+                                limit_px=clean_maker_px,
+                                order_type={"limit": {"tif": "Alo"}},
+                                reduce_only=False,
+                                cloid=order_cloid
+                            )
 
-                    statuses = entry_resp.get("response", {}).get("data", {}).get("statuses", [])
-                    filled_data = next((s["filled"] for s in statuses if "filled" in s), None)
-                    if not filled_data:
-                        del self.pending_triggers[coin]
-                        continue
+                            if maker_resp.get("status") == "ok":
+                                m_statuses = maker_resp.get("response", {}).get("data", {}).get("statuses", [])
+                                resting = next((s["resting"] for s in m_statuses if "resting" in s), None)
+                                if resting:
+                                    resting_oid = resting["oid"]
+                                    time.sleep(getattr(config, "MAKER_TIMEOUT_SEC", 2.0))
+                                    open_orders = self.info.open_orders(self.address)
+                                    still_open = any(o.get("oid") == resting_oid for o in open_orders)
+                                    if not still_open:
+                                        filled_sz = sizing["sz"]
+                                        filled_px = clean_maker_px
+                                        filled_via_maker = True
+                                        logger.info(f"[✓] [MAKER-FIRST SUCCESS] Заявка исполнена мейкером: {filled_sz} {coin} @ ${filled_px:.4f} (сохранен спред + rebate)")
+                                    else:
+                                        try:
+                                            self.exchange.cancel(coin, resting_oid)
+                                            logger.info(f"[-] [MAKER TIMEOUT] Alo ордер {resting_oid} отменен по таймауту. Переход к IOC фолбэку.")
+                                        except Exception as c_err:
+                                            logger.warning(f"Ошибка отмены Alo ордера: {c_err}")
+                        except Exception as m_err:
+                            logger.warning(f"[MAKER-FIRST ERROR] Сбой размещения мейкер-ордера ({m_err}). Фолбэк на Market Open.")
 
-                    filled_sz = float(filled_data["totalSz"])
-                    filled_px = float(filled_data["avgPx"])
-                    logger.info(f"[✓] Вход исполнен: {filled_sz} {coin} @ ${filled_px:.4f}")
+                    if not filled_via_maker:
+                        logger.info(f"[*] Отправка Market Open: {coin} {sizing['sz']} (cloid: {order_cloid})...")
+                        try:
+                            entry_resp = self.exchange.market_open(name=coin, is_buy=is_long, sz=sizing["sz"], px=None, slippage=config.ENTRY_SLIPPAGE, cloid=order_cloid)
+                        except Exception as e:
+                            logger.error(f"[ENTRY NETWORK ERROR] {coin}: {e}")
+                            del self.pending_triggers[coin]
+                            continue
+
+                        if entry_resp.get("status") != "ok":
+                            del self.pending_triggers[coin]
+                            continue
+
+                        statuses = entry_resp.get("response", {}).get("data", {}).get("statuses", [])
+                        filled_data = next((s["filled"] for s in statuses if "filled" in s), None)
+                        if not filled_data:
+                            del self.pending_triggers[coin]
+                            continue
+
+                        filled_sz = float(filled_data["totalSz"])
+                        filled_px = float(filled_data["avgPx"])
+                        logger.info(f"[✓] Вход исполнен: {filled_sz} {coin} @ ${filled_px:.4f}")
 
                 stop_ok = self.place_native_market_stop(coin, filled_sz, sizing["sl_px"], is_long=is_long)
                 if not stop_ok and self.exchange:

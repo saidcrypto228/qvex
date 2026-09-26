@@ -59,3 +59,7 @@ class CoreState(BaseModel):
 
 # Канонический путь к снимку телеметрии
 CANONICAL_TELEMETRY_PATH = "data/control_plane_state.json"
+
+
+# Реэкспорт модели управления для совместимости
+from core.ipc.control import TradingControlState

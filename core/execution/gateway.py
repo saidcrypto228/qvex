@@ -1,3 +1,5 @@
+import threading
+from core.execution.clock import L1Clock
 """
 QVEX v10.7 — Архитектурный шлюз исполнения ордеров Hyperliquid L1.
 Реализует требования аудита: нативные L1-триггеры, монотонный nonce,
@@ -14,7 +16,7 @@ from hyperliquid.exchange import Exchange
 from hyperliquid.info import Info
 from hyperliquid.utils.error import ServerError
 
-logger = logging.getLogger("QVEX.ExecutionGateway")
+logger = logging.getLogger("QVEX.CoreExecutionGateway")
 
 class HyperliquidExecutionGateway:
     def __init__(
@@ -37,18 +39,12 @@ class HyperliquidExecutionGateway:
         else:
             self.exchange = Exchange(self.account, self.base_url)
 
-        self._nonce_lock = asyncio.Lock()
+        self._nonce_lock = threading.Lock()
         self._last_nonce = 0
 
-    async def get_monotonic_nonce(self) -> int:
-        """Генерирует строго монотонно возрастающий nonce в миллисекундах."""
-        async with self._nonce_lock:
-            current_ms = int(time.time() * 1000)
-            if current_ms <= self._last_nonce:
-                self._last_nonce += 1
-            else:
-                self._last_nonce = current_ms
-            return self._last_nonce
+    def get_monotonic_nonce(self) -> int:
+        """Потокобезопасный генератор строго монотонного nonce с синхронизацией L1."""
+        return L1Clock.get_monotonic_nonce()
 
     @staticmethod
     def generate_cloid() -> str:
@@ -92,7 +88,8 @@ class HyperliquidExecutionGateway:
         coin: str,
         is_buy: bool,
         size: float,
-        max_slippage: float = 0.002
+        max_slippage: float = 0.002,
+        reduce_only: bool = False
     ) -> Dict[str, Any]:
         """
         Агрессивный лимитный IOC-ордер со строгим коридором проскальзывания <= 0.2%.
@@ -115,9 +112,31 @@ class HyperliquidExecutionGateway:
             sz=round(size, 4),
             limit_px=round(limit_px, 2),
             order_type=order_type,
-            reduce_only=False,
+            reduce_only=reduce_only,
             cloid=cloid
         )
+
+    async def cancel_all_orders(self) -> Dict[str, Any]:
+        """
+        Фаза 1 Паники: пакетная отмена всех открытых лимитов и триггеров на L1.
+        Опрашивает открытые ордера через info.open_orders и отправляет bulk_cancel.
+        """
+        target_address = self.master_address or self.account.address
+        open_orders = await asyncio.to_thread(self.info.open_orders, target_address)
+        if not open_orders:
+            logger.info("Открытых ордеров на L1 не обнаружено.")
+            return {"status": "ok", "cancelled": 0}
+
+        cancel_requests = [
+            {"coin": o["coin"], "oid": o["oid"]}
+            for o in open_orders
+        ]
+        res = await self._execute_with_retry(
+            self.exchange.bulk_cancel,
+            cancel_requests
+        )
+        logger.info(f"Успешно аннулировано {len(cancel_requests)} открытых заявок на L1.")
+        return {"status": "ok", "cancelled": len(cancel_requests), "response": res}
 
     async def _execute_with_retry(self, func, *args, **kwargs) -> Dict[str, Any]:
         """Вызов SDK с подавлением сетевых сбоев 502/504 и экспоненциальным бэкоффом."""

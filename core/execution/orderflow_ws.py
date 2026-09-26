@@ -22,7 +22,7 @@ from typing import Dict, Any, List
 import websockets
 import numpy as np
 
-import bot_config as config
+from core import config
 from core.quant.factors import QuantFactorEngine
 
 logging.basicConfig(
@@ -108,12 +108,14 @@ class MicrostructureCollector:
         self.trades_history: Dict[str, deque] = {coin: deque() for coin in CLEAN_TARGETS}
         self.last_prices: Dict[str, float] = {coin: 0.0 for coin in CLEAN_TARGETS}
         self.book_imbalance: Dict[str, float] = {coin: 0.0 for coin in CLEAN_TARGETS}
+        self.funding_rates: Dict[str, float] = {coin: 0.0 for coin in CLEAN_TARGETS}
 
         self.state_file = config.DATA_DIR / "orderflow_state.json"
         self.oi_cache_file = config.DATA_DIR / "oi_history.json"
         self.state_file.parent.mkdir(parents=True, exist_ok=True)
 
         self.oi_tracker = OITracker(self.oi_cache_file)
+        self.last_msg_ts: float = 0.0
         self.running = True
 
     async def _send_keepalive_pings(self, ws):
@@ -172,12 +174,13 @@ class MicrostructureCollector:
                         "obi_10": round(self.book_imbalance[coin], 4),
                         "open_interest": round(self.oi_tracker.current_oi[coin], 2),
                         "delta_oi_z": round(self.oi_tracker.get_zscore(coin), 2),
+                        "funding_rate": float(self.funding_rates.get(coin, 0.0)),
                         "last_px": self.last_prices[coin],
                         "ticks_in_window": len(q)
                     }
 
                 payload = {
-                    "timestamp": now,
+                    "timestamp": self.last_msg_ts,
                     "coins": coins_payload
                 }
 
@@ -212,69 +215,69 @@ class MicrostructureCollector:
                     ping_task = asyncio.create_task(self._send_keepalive_pings(ws))
 
                     for coin in CLEAN_TARGETS:
-                        # 1. Подписка на сделки (trades)
                         await ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "trades", "coin": coin}}))
-                        # 2. Подписка на стакан L2 (l2Book)
                         await ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "l2Book", "coin": coin}}))
-                        # 3. Подписка на контекст актива (activeAssetCtx: OI + Funding)
                         await ws.send(json.dumps({"method": "subscribe", "subscription": {"type": "activeAssetCtx", "coin": coin}}))
 
                     logger.info("[✓] WebSocket L1 открыт (Trades + L2Book + ActiveAssetCtx). Прием микроструктуры...")
 
-                    async for message in ws:
-                        data = json.loads(message)
-                        channel = data.get("channel")
+                    try:
+                        while self.running:
+                            try:
+                                # P0-2: Watchdog таймаут 25с против Half-Open TCP
+                                message = await asyncio.wait_for(ws.recv(), timeout=25.0)
+                            except asyncio.TimeoutError:
+                                logger.warning("[-] Watchdog OrderFlow: таймаут сокета > 25с. Реконнект...")
+                                break
 
-                        if data.get("response") == "pong":
-                            continue
+                            data = json.loads(message)
+                            channel = data.get("channel")
+                            if channel in ("trades", "l2Book", "activeAssetCtx"):
+                                self.last_msg_ts = time.time()
 
-                        # Сделки
-                        if channel == "trades":
-                            trades = data.get("data", [])
-                            for t in trades:
-                                coin = t.get("coin")
-                                if coin in self.trades_history:
-                                    px = float(t.get("px", 0.0))
-                                    sz = float(t.get("sz", 0.0))
-                                    side = t.get("side")
-                                    self.last_prices[coin] = px
-                                    self.trades_history[coin].append((time.time(), side, px * sz, px))
+                            if data.get("response") == "pong":
+                                self.last_msg_ts = time.time()
+                                continue
 
-                        # Стакан L2
-                        elif channel == "l2Book":
-                            book_data = data.get("data", {})
-                            coin = book_data.get("coin")
-                            if coin in self.book_imbalance:
-                                levels = book_data.get("levels", [[], []])
-                                bids = levels[0] if len(levels) > 0 else []
-                                asks = levels[1] if len(levels) > 1 else []
-                                self.book_imbalance[coin] = self._compute_obi(bids, asks, depth=10)
+                            # Сделки
+                            if channel == "trades":
+                                trades = data.get("data", [])
+                                for t in trades:
+                                    coin = t.get("coin")
+                                    if coin in self.trades_history:
+                                        px = float(t.get("px", 0.0))
+                                        sz = float(t.get("sz", 0.0))
+                                        side = t.get("side")
+                                        self.last_prices[coin] = px
+                                        self.trades_history[coin].append((time.time(), side, px * sz, px))
 
-                        # Контекст актива: Открытый интерес (OI)
-                        elif channel == "activeAssetCtx":
-                            asset_data = data.get("data", {})
-                            coin = asset_data.get("coin")
-                            ctx = asset_data.get("ctx", {})
-                            oi_raw = ctx.get("openInterest")
-                            if coin in CLEAN_TARGETS and oi_raw is not None:
-                                try:
-                                    self.oi_tracker.update(coin, time.time(), float(oi_raw))
-                                except (ValueError, TypeError):
-                                    pass
+                            # Стакан L2
+                            elif channel == "l2Book":
+                                book_data = data.get("data", {})
+                                coin = book_data.get("coin")
+                                if coin in self.book_imbalance:
+                                    levels = book_data.get("levels", [[], []])
+                                    bids = levels[0] if len(levels) > 0 else []
+                                    asks = levels[1] if len(levels) > 1 else []
+                                    self.book_imbalance[coin] = self._compute_obi(bids, asks, depth=10)
 
-                    ping_task.cancel()
-                    logger.info("[-] Сессия WS завершена удаленным сервером. Переподключение...")
+                            # Контекст актива (OI + Funding)
+                            elif channel == "activeAssetCtx":
+                                ctx = data.get("data", {})
+                                coin = ctx.get("coin")
+                                if coin in CLEAN_TARGETS:
+                                    oi_val = ctx.get("openInterest") or (ctx.get("ctx", {}).get("openInterest") if isinstance(ctx.get("ctx"), dict) else 0.0)
+                                    self.oi_tracker.update_sample(coin, float(oi_val or 0.0))
+                                    funding_val = ctx.get("funding") or (ctx.get("ctx", {}).get("funding") if isinstance(ctx.get("ctx"), dict) else 0.0)
+                                    try:
+                                        self.funding_rates[coin] = float(funding_val or 0.0)
+                                    except (ValueError, TypeError):
+                                        pass
 
-            except (websockets.exceptions.ConnectionClosedError, websockets.exceptions.ConnectionClosedOK) as e:
-                logger.warning(f"[!] Закрытие WS ({e}). Чистое переподключение через 2 сек...")
-                await asyncio.sleep(2.0)
+                    finally:
+                        if not ping_task.done():
+                            ping_task.cancel()
+
             except Exception as e:
-                logger.error(f"[!] Сбой WS: {e}. Переподключение через 5 сек...")
-                await asyncio.sleep(5.0)
-
-if __name__ == "__main__":
-    collector = MicrostructureCollector()
-    try:
-        asyncio.run(collector.run())
-    except KeyboardInterrupt:
-        logger.info("[-] Остановка по сигналу.")
+                logger.error(f"[-] Ошибка WebSocket OrderFlow ({e}). Реконнект через 3.0 сек...")
+                await asyncio.sleep(3.0)

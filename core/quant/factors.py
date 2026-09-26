@@ -4,7 +4,6 @@ from sklearn.preprocessing import StandardScaler
 
 class QuantFactorEngine:
     @staticmethod
-    @staticmethod
     def compute_fractal_swings(high_series, low_series, window=2):
         """
         Расчет подтвержденных фракталов Swing High / Swing Low.
@@ -66,7 +65,6 @@ class QuantFactorEngine:
         except Exception:
             return pd.Series(close), pd.Series(close)
 
-    @staticmethod
     @staticmethod
     def evaluate_evr_absorption(*args, **kwargs):
         """
@@ -196,7 +194,7 @@ class QuantFactorEngine:
     """
     def __init__(self, scaler=None):
         self.scaler = scaler if scaler is not None else StandardScaler()
-        self.is_fitted = False
+        self.is_fitted = scaler is not None and hasattr(scaler, 'mean_')
 
     def compute_raw_factors(self, df: pd.DataFrame, btc_df: pd.DataFrame = None) -> pd.DataFrame:
         """Расчет сырых математических признаков."""
@@ -243,5 +241,5 @@ class QuantFactorEngine:
     def transform(self, X: pd.DataFrame) -> np.ndarray:
         """Трансформация тестовых данных без утечки математического ожидания."""
         if not self.is_fitted:
-            return self.scaler.fit_transform(X.fillna(0.0))
+            raise RuntimeError("QuantFactorEngine: скейлер не обучен! Запрещен инференс без предварительного fit.")
         return self.scaler.transform(X.fillna(0.0))
