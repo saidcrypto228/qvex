@@ -4,15 +4,37 @@
 """
 
 import os
+import sys
 from pathlib import Path
 
 # Сеть и учетные данные
-IS_TESTNET = True
-ACCOUNT_ADDRESS = "0x0000000000000000000000000000000000000000"
-SECRET_KEY = ""
+IS_TESTNET = os.getenv("HYPERLIQUID_TESTNET", "true").strip().lower() in ("1", "true", "yes", "on")
+ACCOUNT_ADDRESS = os.getenv("ACCOUNT_ADDRESS", "0x0000000000000000000000000000000000000000").strip()
+SECRET_KEY = os.getenv("HYPERLIQUID_PRIVATE_KEY", "").strip()
 
 # Базовые директории
-BASE_DIR = Path(__file__).parent.resolve()
+
+# Windows console UTF-8 compatibility.
+# Prevent UnicodeEncodeError for production logging messages.
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        pass
+
+if hasattr(sys.stderr, "reconfigure"):
+    try:
+        sys.stderr.reconfigure(
+            encoding="utf-8",
+            errors="replace",
+        )
+    except Exception:
+        pass
+
+BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 LOG_DIR = BASE_DIR / "logs"
 DATA_DIR.mkdir(exist_ok=True)
