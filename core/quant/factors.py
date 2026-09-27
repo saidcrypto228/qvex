@@ -4,6 +4,22 @@ from sklearn.preprocessing import StandardScaler
 
 class QuantFactorEngine:
     @staticmethod
+    def compute_delta_oi_robust_zscore(series, lookback=24):
+        """Робастный расчет z-score дельты открытого интереса."""
+        if len(series) < 6:
+            return 0.0
+        import numpy as np
+        arr = np.array(series, dtype=float)
+        diffs = np.diff(arr)
+        if len(diffs) == 0:
+            return 0.0
+        mean = np.mean(diffs[-lookback:])
+        std = np.std(diffs[-lookback:])
+        if std < 1e-8:
+            return 0.0
+        return float((diffs[-1] - mean) / std)
+
+    @staticmethod
     def compute_fractal_swings(high_series, low_series, window=2):
         """
         Расчет подтвержденных фракталов Swing High / Swing Low.

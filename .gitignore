@@ -68,3 +68,7 @@ archive_pyhonobychenie/
 data/test_logs/
 data/orderflow_state.json
 data/control_plane_state.json
+
+.venv/
+*.backup*
+logs/

@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
 """
-Конфигурация квантового торгового комплекса v10.0 (Alpha Expansion & L1 Hardened).
+РљРѕРЅС„РёРіСѓСЂР°С†РёСЏ РєРІР°РЅС‚РѕРІРѕРіРѕ С‚РѕСЂРіРѕРІРѕРіРѕ РєРѕРјРїР»РµРєСЃР° v10.0 (Alpha Expansion & L1 Hardened).
 """
 
 import os
 import sys
 from pathlib import Path
 
-# Сеть и учетные данные
+# РЎРµС‚СЊ Рё СѓС‡РµС‚РЅС‹Рµ РґР°РЅРЅС‹Рµ
 IS_TESTNET = os.getenv("HYPERLIQUID_TESTNET", "true").strip().lower() in ("1", "true", "yes", "on")
 ACCOUNT_ADDRESS = os.getenv("ACCOUNT_ADDRESS", "0x0000000000000000000000000000000000000000").strip()
 SECRET_KEY = os.getenv("HYPERLIQUID_PRIVATE_KEY", "").strip()
 
-# Базовые директории
+# Р‘Р°Р·РѕРІС‹Рµ РґРёСЂРµРєС‚РѕСЂРёРё
 
 # Windows console UTF-8 compatibility.
 # Prevent UnicodeEncodeError for production logging messages.
@@ -41,26 +41,26 @@ DATA_DIR.mkdir(exist_ok=True)
 LOG_DIR.mkdir(exist_ok=True)
 STATE_FILE = DATA_DIR / "bot_state.json"
 
-# Вселенная активов (11 ликвидных альткоинов)
+# Р’СЃРµР»РµРЅРЅР°СЏ Р°РєС‚РёРІРѕРІ (11 Р»РёРєРІРёРґРЅС‹С… Р°Р»СЊС‚РєРѕРёРЅРѕРІ)
 TARGET_COINS = [
     "SOL", "AVAX", "SUI", "APT", "DOGE", 
     "NEAR", "ARB", "OP", "TIA", "INJ", "RENDER"
 ]
 
-# Временные интервалы
+# Р’СЂРµРјРµРЅРЅС‹Рµ РёРЅС‚РµСЂРІР°Р»С‹
 CANDLE_TIMEFRAME = "1h"
 CHECK_INTERVAL_SEC = 60
 RECONCILE_INTERVAL_SEC = 15
 DEADMAN_TIMEOUT_MIN = 15
 
-# Alpha Blueprint v10.0: Лимиты капитала и динамические слоты
+# Alpha Blueprint v10.0: Р›РёРјРёС‚С‹ РєР°РїРёС‚Р°Р»Р° Рё РґРёРЅР°РјРёС‡РµСЃРєРёРµ СЃР»РѕС‚С‹
 PORTFOLIO_HARD_LEVERAGE_CAP = 2.50
 MAX_PORTFOLIO_LEVERAGE = 2.50
 BASE_CONCURRENT_POSITIONS = 2
 EXPANDED_CONCURRENT_POSITIONS = 4
-MAX_OPEN_POSITIONS = 2  # Динамически модулируется до 4
+MAX_OPEN_POSITIONS = 2  # Р”РёРЅР°РјРёС‡РµСЃРєРё РјРѕРґСѓР»РёСЂСѓРµС‚СЃСЏ РґРѕ 4
 
-# Адаптивный риск-менеджмент
+# РђРґР°РїС‚РёРІРЅС‹Р№ СЂРёСЃРє-РјРµРЅРµРґР¶РјРµРЅС‚
 BASE_RISK_PER_TRADE = 0.0100
 MIN_RISK_PER_TRADE = 0.0060
 MAX_RISK_PER_TRADE = 0.0165
@@ -68,18 +68,18 @@ MAX_SINGLE_POSITION_LEVERAGE = 1.10
 MIN_NOTIONAL_USD = 10.0
 ENTRY_SLIPPAGE = 0.005
 
-# Макро-модуляция тренда BTC
+# РњР°РєСЂРѕ-РјРѕРґСѓР»СЏС†РёСЏ С‚СЂРµРЅРґР° BTC
 BTC_SLOPE_THRESHOLD = 0.40
 BTC_TREND_FILTER_MA_PERIOD = 200
 
-# Асимметричный выход: 40% TP1 + 60% Runner
+# РђСЃРёРјРјРµС‚СЂРёС‡РЅС‹Р№ РІС‹С…РѕРґ: 40% TP1 + 60% Runner
 TAKE_PROFIT_1_ATR_MULTIPLE = 1.50
 TAKE_PROFIT_1_SIZE_RATIO = 0.40
 SOFT_BREAKEVEN_ATR_OFFSET = 0.20
 CHANDELIER_LOOKBACK_PERIODS = 18
 CHANDELIER_ATR_MULTIPLIER = 2.50
 
-# Микроструктура и лимиты L1
+# РњРёРєСЂРѕСЃС‚СЂСѓРєС‚СѓСЂР° Рё Р»РёРјРёС‚С‹ L1
 MAX_PRICE_SIGNIFICANT_FIGURES = 5
 MAX_PERP_DECIMALS = 6
 STOP_BUFFER_LIMIT_RATIO = 0.15
@@ -87,8 +87,10 @@ ORDERFLOW_STALE_TIMEOUT_SEC = 15.0
 
 
 # --- Alpha Gate: Funding Rate Threshold ---
-MAX_ADVERSE_FUNDING_RATE = 0.0003  # 0.03% в час (~262% APR)
+MAX_ADVERSE_FUNDING_RATE = 0.0003  # 0.03% РІ С‡Р°СЃ (~262% APR)
 
 # --- Alpha Execution: Maker-First Configuration ---
-ENABLE_MAKER_FIRST = True        # Пассивное выставление лимитных Alo заявок
-MAKER_TIMEOUT_SEC = 2.0         # Окно ожидания налития до маркет-фолбэка
+ENABLE_MAKER_FIRST = True        # РџР°СЃСЃРёРІРЅРѕРµ РІС‹СЃС‚Р°РІР»РµРЅРёРµ Р»РёРјРёС‚РЅС‹С… Alo Р·Р°СЏРІРѕРє
+MAKER_TIMEOUT_SEC = 2.0         # РћРєРЅРѕ РѕР¶РёРґР°РЅРёСЏ РЅР°Р»РёС‚РёСЏ РґРѕ РјР°СЂРєРµС‚-С„РѕР»Р±СЌРєР°
+
+
