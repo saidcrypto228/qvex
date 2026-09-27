@@ -38,3 +38,11 @@ anaconda_projects/
 archive_pyhonobychenie/
 data/*.csv
 start_qvex.py
+
+# Мусор блокнотов и экспериментов
+.ipynb_checkpoints/
+*.ipynb
+anaconda_projects/
+archive_pyhonobychenie/
+data/*.csv
+start_qvex.py
