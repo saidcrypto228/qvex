@@ -24,12 +24,15 @@ class TradingControlState(BaseModel):
 class ControlStateManager:
     """Управление состоянием торговли и перехват операторских сигналов."""
 
-    def __init__(self, path: Path | str):
-        self.path = Path(path).resolve()
+    def __init__(self, path: Optional[Path | str] = None):
+        if path is None:
+            from core import config
+            self.path = (Path(config.DATA_DIR) / "trading_control.json").resolve()
+        else:
+            self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         if not self.path.exists():
             self._init_defaults()
-
     def _init_defaults(self) -> None:
         state = TradingControlState(
             trading_enabled=True,

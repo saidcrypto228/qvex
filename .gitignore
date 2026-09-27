@@ -62,3 +62,9 @@ _qvex_backups/
 *.tmp
 test_*.json
 results/stress_*
+
+.venv/
+archive_pyhonobychenie/
+data/test_logs/
+data/orderflow_state.json
+data/control_plane_state.json
