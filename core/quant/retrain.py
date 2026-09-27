@@ -122,12 +122,22 @@ class AdaptiveRetrainEngine:
 
         logger.info(f"✔ [ML-SUCCESS] Модель успешно обновлена! OOS AUC: {auc:.3f} (N={n})")
 
+        import time
+        scaler_mean = self.factor_engine.scaler.mean_.tolist() if hasattr(self.factor_engine.scaler, "mean_") else []
+        scaler_scale = self.factor_engine.scaler.scale_.tolist() if hasattr(self.factor_engine.scaler, "scale_") else []
+
         return {
             "status": "ACCEPTED",
             "auc": float(auc),
+            "auc_test": float(auc),
+            "coef": final_weights,
             "weights": final_weights,
             "intercept": float(self.model.intercept_[0]),
+            "feature_cols": list(X.columns),
             "feature_names": list(X.columns),
+            "scaler_mean": scaler_mean,
+            "scaler_scale": scaler_scale,
+            "trained_at": time.time(),
             "updated": True
         }
 

@@ -1,3 +1,4 @@
+import torch
 from core.utils.helpers import atomic_write_json
 #!/usr/bin/env python3
 """
@@ -189,14 +190,24 @@ class HyperliquidSwingBot:
             try:
                 with open(model_file, "r", encoding="utf-8") as f:
                     m_data = json.load(f)
-                self.feature_cols = m_data["feature_cols"]
-                self.weights = np.array(m_data["coef"])
+                self.feature_cols = m_data.get("feature_cols") or m_data.get("feature_names", [])
+                self.weights = np.array(m_data.get("coef") or m_data.get("weights", []))
                 self.intercept = float(m_data["intercept"])
                 self.scaler_mean = np.array(m_data["scaler_mean"])
                 self.scaler_scale = np.array(m_data["scaler_scale"])
                 self.scaler_scale = np.where(self.scaler_scale <= 1e-6, 1.0, self.scaler_scale)
                 self.meta_weights = True
-                logger.info(f"[✓] Линейная Meta-Model успешно загружена: {model_file}")
+
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                if torch.cuda.is_available():
+                    self.torch_weights = torch.as_tensor(self.weights, dtype=torch.float32, device=self.device)
+                    self.torch_intercept = torch.as_tensor(self.intercept, dtype=torch.float32, device=self.device)
+                    self.torch_scaler_mean = torch.as_tensor(self.scaler_mean, dtype=torch.float32, device=self.device)
+                    self.torch_scaler_scale = torch.as_tensor(self.scaler_scale, dtype=torch.float32, device=self.device)
+                    logger.info(f"[✓] Meta-Model де Прадо загружена на CUDA GPU ({torch.cuda.get_device_name(0)}): {model_file}")
+                else:
+                    self.torch_weights = None
+                    logger.info(f"[✓] Meta-Model загружена на CPU: {model_file}")
             except Exception as e:
                 logger.critical(f"[-] Ошибка загрузки ML JSON: {e}")
         else:
@@ -225,6 +236,19 @@ class HyperliquidSwingBot:
     def predict_meta_prob(self, raw_features: list) -> float:
         if not self.meta_weights:
             return 0.0
+
+        if getattr(self, "torch_weights", None) is not None:
+            try:
+                with torch.no_grad():
+                    x_t = torch.as_tensor(raw_features, dtype=torch.float32, device=self.device)
+                    x_scaled = (x_t - self.torch_scaler_mean) / self.torch_scaler_scale
+                    z = torch.dot(self.torch_weights, x_scaled) + self.torch_intercept
+                    z_clipped = torch.clamp(z, min=-15.0, max=15.0)
+                    prob = torch.sigmoid(z_clipped)
+                    return float(prob.item())
+            except Exception:
+                pass
+
         x = (np.array(raw_features) - self.scaler_mean) / self.scaler_scale
         z = float(np.dot(self.weights, x) + self.intercept)
         z_clipped = max(min(z, 15.0), -15.0)
