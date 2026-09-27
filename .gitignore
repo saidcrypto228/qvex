@@ -1,78 +1,40 @@
-# Byte-compiled / optimized / DLL files
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-
-# Environments
-.env
+# Виртуальное окружение и кэш
+.venv/
 venv/
-env/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-
-# Large binaries & OS files
-*.exe
-*.dll
-*.bin
-*.zip
-*.tar.gz
-Thumbs.db
-.DS_Store
-
-# IDE & Jupyter
-.idea/
-.vscode/
-.ipynb_checkpoints/
-
-# System specific
-backups/
-_qvex_safety_backups/
-logs/
-*.log
-artifacts/
-*.csv
-data/*.csv
-
-
-# Anaconda / Jupyter checkpoints & local DB
-anaconda_projects/
-.ipynb_checkpoints/
 __pycache__/
 *.py[cod]
-*$py.class
-results/
+*.class
+.pytest_cache/
+
+# Секреты и ключи
+.env
+*.pem
+*.key
+private_key*
+
+# Логи и отладка
 logs/
-data/*.json
-
-# Local heavy archives
-archive/
-
-# Jupyter notebooks
-*.ipynb
-.env.*
-!.env.example
-_qvex_backups/
-
-*.tmp
-test_*.json
-results/stress_*
-
-.venv/
-archive_pyhonobychenie/
-data/test_logs/
-data/orderflow_state.json
-data/control_plane_state.json
-
-.venv/
-*.backup*
-logs/
-
-data/oi_history.json
-data/orderflow_state.json
 *.log
+
+# Тяжелые датасеты и дампы
+data/raw/
+data/universe/*.csv
+data/universe/*.parquet
+data/history_deep/
+data/test_logs/
+*.parquet
+
+# Временные файлы состояния (IPC)
+data/trading_control.json
+data/core_state.json
+data/control_plane_state.json
+data/orderflow_state.json
+data/oi_history.json
+
+# Мусор блокнотов и экспериментов
+.ipynb_checkpoints/
+*.ipynb
+anaconda_projects/
+archive_pyhonobychenie/
+data/*.csv
+start_qvex.py
