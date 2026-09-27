@@ -396,8 +396,21 @@ def simulate_v10_7(start_idx, end_idx, title="", mode="v11"):
                 current_active_risk += (current_equity * 0.01)
 
             available_risk = max(0.0, (current_equity * MAX_PORTFOLIO_HEAT_PCT) - current_active_risk)
-            btc_dumping = ((btc_row["close"] < btc_row["ema20_4h"] * 0.992) and (btc_slope_rel < -0.05)) or (btc_slope_rel < -0.15)
-            can_open_new = (available_risk >= (current_equity * 0.008)) and (len(open_positions) < 3) and (not btc_dumping)
+
+            # =========================================================================
+            # DIRECTIONAL PERMISSION LAYER (DPL v11.0 - LONG / 100% CASH REGIME)
+            # =========================================================================
+            btc_macro_bull = bool((btc_row["close"] > btc_row["ema50_4h"]) and (btc_row["ema20_4h"] >= btc_row["ema50_4h"] * 0.998))
+            btc_not_dumping = not (((btc_row["close"] < btc_row["ema20_4h"] * 0.992) and (btc_slope_rel < -0.05)) or (btc_slope_rel < -0.12))
+            
+            # Институциональный шлюз: LONG разрешен только при устойчивом бычьем фоне BTC
+            long_permission = btc_macro_bull and btc_not_dumping
+            has_capacity = (available_risk >= (current_equity * 0.008)) and (len(open_positions) < 3)
+            
+            # В фазах падения/распила (BEAR/CHOP) система держит 100% CASH (Zero New Exposure)
+            can_open_new = has_capacity and long_permission
+            can_open_long = can_open_new
+            can_open_short = False  # SHORT системно отключен на уровне архитектуры DPL
 
             SECTOR_MAP = {
                 "SOL": "L1", "AVAX": "L1", "NEAR": "L1", "SUI": "L1", "APT": "L1",

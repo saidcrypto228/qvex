@@ -156,7 +156,15 @@ class HyperliquidSwingBot:
         base_url = constants.TESTNET_API_URL if self.is_testnet else constants.MAINNET_API_URL
         self.address = config.ACCOUNT_ADDRESS
 
-        self.info = Info(base_url, skip_ws=True, timeout=5)
+        self.info = Info(base_url, skip_ws=True, timeout=10)
+        if hasattr(self.info, "session") and self.info.session:
+            self.info.session.trust_env = False
+            from requests.adapters import HTTPAdapter
+            from urllib3.util.retry import Retry
+            retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504])
+            adapter = HTTPAdapter(max_retries=retries, pool_connections=10, pool_maxsize=10)
+            self.info.session.mount("https://", adapter)
+            self.info.session.mount("http://", adapter)
         self.md_worker = MarketDataWorker(self.info)
 
         self.exchange = None
@@ -670,16 +678,21 @@ class HyperliquidSwingBot:
             return
 
         last_btc = btc_df.iloc[-1]
-        btc_bull = bool(last_btc["close"] > last_btc["ema50_4h"])
-        btc_bear = bool(last_btc["close"] < last_btc["ema50_4h"])
+        # =========================================================================
+        # DIRECTIONAL PERMISSION LAYER (DPL v11.0 - LONG / 100% CASH REGIME)
+        # =========================================================================
+        btc_macro_bull = bool((last_btc["close"] > last_btc["ema50_4h"]) and (last_btc["ema20_4h"] >= last_btc["ema50_4h"] * 0.998))
         btc_slope_rel = last_btc["ema50_slope"] / max(last_btc["close"] * 0.01, 1e-4)
-
-        if (btc_bull and btc_slope_rel > 0.15) or (btc_bear and btc_slope_rel < -0.25):
+        btc_not_dumping = not (((last_btc["close"] < last_btc["ema20_4h"] * 0.992) and (btc_slope_rel < -0.05)) or (btc_slope_rel < -0.12))
+        
+        self.dpl_long_permission = btc_macro_bull and btc_not_dumping
+        
+        if self.dpl_long_permission and btc_slope_rel > 0.15:
             self.active_slots_limit = config.EXPANDED_CONCURRENT_POSITIONS
         else:
             self.active_slots_limit = config.BASE_CONCURRENT_POSITIONS
 
-        regime_str = f"BULL (SLOTS: {self.active_slots_limit})" if btc_bull else "BEAR/CHOP (SLOTS: 2)"
+        regime_str = f"BULL (DPL: ACTIVE | SLOTS: {self.active_slots_limit})" if self.dpl_long_permission else "BEAR/CHOP (DPL: 100% CASH DEFENSE)"
         active_pos_cnt = len(self.state.get("positions", {}))
         trig_cnt = len(self.pending_triggers)
         logger.info(
@@ -923,9 +936,14 @@ class HyperliquidSwingBot:
                 self.save_state()
                 del self.pending_triggers[coin]
 
-        # Поиск сигналов
+        # Поиск сигналов: Directional Permission Layer (Long / 100% Cash Policy)
         active_assets = set(self.state["positions"].keys()) | set(self.pending_triggers.keys())
-        if len(active_assets) < self.active_slots_limit:
+        
+        if not getattr(self, "dpl_long_permission", False):
+            if self.pending_triggers:
+                logger.info(f"[DPL CASH DEFENSE] BTC слабый/дамп. Сброшено отложенных триггеров: {len(self.pending_triggers)}")
+                self.pending_triggers.clear()
+        elif len(active_assets) < self.active_slots_limit:
             btc_closes = btc_df["close"]
             clean_coins = [c for c in config.TARGET_COINS if c not in ["ETH", "LINK", "PEPE", "kPEPE", "WIF"]]
 
@@ -942,7 +960,7 @@ class HyperliquidSwingBot:
                 atr = row["atr_4h"]
 
                 # Лонг-сетапы
-                if btc_bull and z_res_mom >= 0.40 and raw_rs_pct >= 2.0:
+                if self.dpl_long_permission and z_res_mom >= 0.40 and raw_rs_pct >= 2.0:
                     is_trend = (row["close"] > row["ema50_4h"]) and (row["ema20_4h"] > row["ema50_4h"])
                     is_evr_ok, _, _ = QuantFactorEngine.evaluate_evr_absorption(
                         open_px=row["open"], high_px=row["high"], low_px=row["low"], close_px=row["close"],
@@ -988,43 +1006,6 @@ class HyperliquidSwingBot:
                             "direction": "LONG", "trigger_px": row["high"] * 1.0005,
                             "sl_px": sl_price, "expiry_t": now + (3 * 3600 if valid_pullback else 2 * 3600),
                             "atr": atr, "ml_prob": ml_prob
-                        }
-                        active_assets.add(coin)
-
-                # Шорт-сетапы
-                elif btc_bear and btc_slope_rel < -0.30 and z_res_mom <= -0.40 and raw_rs_pct <= -2.5:
-                    is_bear_trend = (row["close"] < row["ema50_4h"]) and (row["ema20_4h"] < row["ema50_4h"])
-                    breakdown_hit = (row["close"] <= row["donchian_low_4h"] * 1.002)
-                    vol_boost = row["vol_rolling_4h"] >= row["vol_sma20_4h"] * 1.15
-                    is_bear_pb = is_bear_trend and (row["high"] >= row["ema20_4h"] * 0.995) and (row["close"] <= row["ema20_4h"])
-                    valid_short_bo = breakdown_hit and vol_boost
-
-                    if is_bear_pb or valid_short_bo:
-                        if not self.meta_weights:
-                            continue
-
-                        entry_px = row["close"]
-                        vol_rel = min(row["vol_rolling_4h"] / max(row["vol_sma20_4h"], 1e-4), 5.0)
-                        dist_ema20 = (entry_px - row["ema20_4h"]) / max(atr, 1e-4)
-                        donch_range = max(row["donchian_high_4h"] - row["donchian_low_4h"], 1e-4)
-                        donch_pos = (entry_px - row["donchian_low_4h"]) / donch_range
-
-                        raw_feats = [
-                            z_res_mom, beta_btc, raw_rs_pct, vol_rel,
-                            (atr / entry_px) * 100.0, dist_ema20, donch_pos,
-                            btc_slope_rel, 1.0 if valid_short_bo else 0.0, 0.0
-                        ]
-
-                        prob = self.predict_meta_prob(raw_feats)
-                        if prob < 0.48:
-                            continue
-
-                        sl_price = row["high"] + (atr * 0.85) if is_bear_pb else row["close"] + (atr * 1.50)
-
-                        self.pending_triggers[coin] = {
-                            "direction": "SHORT", "trigger_px": row["low"] * 0.9995,
-                            "sl_px": sl_price, "expiry_t": now + (3 * 3600 if is_bear_pb else 2 * 3600),
-                            "atr": atr, "ml_prob": prob
                         }
                         active_assets.add(coin)
 
