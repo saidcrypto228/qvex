@@ -288,8 +288,15 @@ def simulate_v10_7(start_idx, end_idx, title="", mode="v11"):
                 sl_dist = abs(fill_px - trig["sl_px"])
 
                 if sl_dist / fill_px >= 0.008:
-                    # Строгий риск на 1 сделку: 1.0% от текущего капитала (без плечевого перегруза)
-                    single_trade_risk_usd = current_equity * 0.01
+                    # Расчет риска: плоский 1.0% (Base) либо динамический 1.3% - 2.2% (ML Boost)
+                    if mode == "v10_7_dynamic":
+                        prob = float(trig.get("ml_prob", 0.50))
+                        # Нормализация уверенности: от 0.50 (min) до 0.85 (max)
+                        norm_prob = max(0.0, min(1.0, (prob - 0.50) / (0.85 - 0.50)))
+                        risk_pct = 0.013 + norm_prob * (0.022 - 0.013)
+                        single_trade_risk_usd = current_equity * risk_pct
+                    else:
+                        single_trade_risk_usd = current_equity * 0.01
                     target_notional = single_trade_risk_usd / max(sl_dist / fill_px, 1e-4)
                     target_notional = min(target_notional, current_equity * 0.40)
                     avail_cap = max(0.0, portfolio_cap_usd - total_notional)
@@ -317,7 +324,7 @@ def simulate_v10_7(start_idx, end_idx, title="", mode="v11"):
         btc_closes = btc_df[btc_df["t"] <= curr_t]["close"]
         active_assets = set(open_positions.keys()) | set(pending_triggers.keys())
 
-        if mode == "v10_7":
+        if mode in ["v10_7", "v10_7_dynamic"]:
             # --- БАЗОВЫЙ v10.7: СТРОГО 2 СЛОТА, БЕЗ RECYCLING, FIFO ---
             can_open = len(active_assets) < 2
             if can_open:
@@ -603,16 +610,16 @@ r_is_v10 = simulate_v10_7(min_warmup, split_idx, "1. IN-SAMPLE v10.7 (" + str(is
 r_oos_v10 = simulate_v10_7(oos_start_idx, total_bars, "2. OUT-OF-SAMPLE v10.7 (" + str(oos_days) + " ДНЕЙ)", mode="v10_7")
 
 print("")
-print(">>> [РАУНД 2/2] ТЕСТИРОВАНИЕ v11.0 (3 СЛОТА, PRIORITY RANKING, RECYCLING, BTC GATE)...")
-r_is_v11 = simulate_v10_7(min_warmup, split_idx, "1. IN-SAMPLE v11.0 (" + str(is_days) + " ДНЕЙ)", mode="v11")
-r_oos_v11 = simulate_v10_7(oos_start_idx, total_bars, "2. OUT-OF-SAMPLE v11.0 (" + str(oos_days) + " ДНЕЙ)", mode="v11")
+print(">>> [РАУНД 2/2] ТЕСТИРОВАНИЕ v10.7 DYNAMIC RISK (2 СЛОТА, BOOST 1.3% - 2.2%)...")
+r_is_v11 = simulate_v10_7(min_warmup, split_idx, "1. IN-SAMPLE DYNAMIC (" + str(is_days) + " ДНЕЙ)", mode="v10_7_dynamic")
+r_oos_v11 = simulate_v10_7(oos_start_idx, total_bars, "2. OUT-OF-SAMPLE DYNAMIC (" + str(oos_days) + " ДНЕЙ)", mode="v10_7_dynamic")
 
 print("")
 print("=" * 85)
-print("  ИТОГОВЫЙ БАТТЛ: v10.7 (2 слота) vs v11.0 (3 слота + Priority) НА " + str(tot_days) + " ДНЯХ")
+print("  ИТОГОВЫЙ БАТТЛ: v10.7 Base (1.0% Flat) vs v10.7 Dynamic Risk (ML-Kelly) НА " + str(tot_days) + " ДНЯХ")
 print("=" * 85)
 h_fmt = "{:<24} | {:<26} | {:<26}"
-print(h_fmt.format("МЕТРИКА", "v10.7 (2 слота, Base)", "v11.0 (3 слота, Priority)"))
+print(h_fmt.format("МЕТРИКА", "v10.7 (1.0% Base)", "v10.7 Boost (1.3%-2.2%)"))
 print("-" * 85)
 
 pnl_is_10 = "{:>+7.2f}% (${:>+7.2f})".format(r_is_v10["pnl_pct"], r_is_v10["pnl_usd"])

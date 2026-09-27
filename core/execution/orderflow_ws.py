@@ -76,6 +76,10 @@ class OITracker:
         except Exception as e:
             logger.error(f"[-] OITracker: сбой записи кеша: {e}")
 
+    def update_sample(self, coin: str, oi: float) -> None:
+        """Алиас для тикового обновления OI с текущей меткой времени."""
+        self.update(coin, time.time(), oi)
+
     def update(self, coin: str, timestamp: float, oi: float):
         if coin not in self.current_oi or oi <= 0.0:
             return
@@ -281,3 +285,19 @@ class MicrostructureCollector:
             except Exception as e:
                 logger.error(f"[-] Ошибка WebSocket OrderFlow ({e}). Реконнект через 3.0 сек...")
                 await asyncio.sleep(3.0)
+
+
+if __name__ == "__main__":
+    import asyncio
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s | [%(name)s] | %(levelname)s | %(message)s"
+    )
+    print("=" * 60)
+    print("🌊 QVEX ORDERFLOW WORKER: ЗАПУСК СБОРА МИКРОСТРУКТУРЫ")
+    print("=" * 60)
+    collector = MicrostructureCollector()
+    try:
+        asyncio.run(collector.run())
+    except KeyboardInterrupt:
+        print("\n[!] Остановка OrderFlow Worker по сигналу KeyboardInterrupt.")
