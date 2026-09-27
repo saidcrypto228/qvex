@@ -72,3 +72,7 @@ data/control_plane_state.json
 .venv/
 *.backup*
 logs/
+
+data/oi_history.json
+data/orderflow_state.json
+*.log
