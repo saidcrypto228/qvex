@@ -1,0 +1,126 @@
+{
+  "timestamp": 1790534771.2706149,
+  "coins": {
+    "SOL": {
+      "cvd_usd": 4233.92,
+      "cvd_ratio": 0.2418,
+      "total_volume_usd": 17509.28,
+      "obi_10": -0.1415,
+      "open_interest": 5850.28,
+      "delta_oi_z": 1.56,
+      "funding_rate": 1.25e-05,
+      "last_px": 123.05,
+      "ticks_in_window": 256
+    },
+    "AVAX": {
+      "cvd_usd": -1843.2,
+      "cvd_ratio": -0.1439,
+      "total_volume_usd": 12809.06,
+      "obi_10": 0.0979,
+      "open_interest": 13494.74,
+      "delta_oi_z": 0.03,
+      "funding_rate": 1.25e-05,
+      "last_px": 11.044,
+      "ticks_in_window": 157
+    },
+    "SUI": {
+      "cvd_usd": 1508.38,
+      "cvd_ratio": 0.1917,
+      "total_volume_usd": 7867.51,
+      "obi_10": 0.0339,
+      "open_interest": 39034.4,
+      "delta_oi_z": -0.18,
+      "funding_rate": 1.25e-05,
+      "last_px": 1.2709,
+      "ticks_in_window": 198
+    },
+    "APT": {
+      "cvd_usd": 1766.11,
+      "cvd_ratio": 0.3072,
+      "total_volume_usd": 5748.22,
+      "obi_10": -0.2745,
+      "open_interest": 60940.86,
+      "delta_oi_z": -0.63,
+      "funding_rate": 1.25e-05,
+      "last_px": 0.8547,
+      "ticks_in_window": 163
+    },
+    "DOGE": {
+      "cvd_usd": -892.75,
+      "cvd_ratio": -0.2187,
+      "total_volume_usd": 4082.59,
+      "obi_10": -0.1718,
+      "open_interest": 1600842.0,
+      "delta_oi_z": -0.25,
+      "funding_rate": 1.25e-05,
+      "last_px": 0.097565,
+      "ticks_in_window": 191
+    },
+    "NEAR": {
+      "cvd_usd": 19665.0,
+      "cvd_ratio": 0.6752,
+      "total_volume_usd": 29123.76,
+      "obi_10": 0.2681,
+      "open_interest": 61095.6,
+      "delta_oi_z": -0.21,
+      "funding_rate": 0.0001262307,
+      "last_px": 5.4572,
+      "ticks_in_window": 150
+    },
+    "ARB": {
+      "cvd_usd": 10957.11,
+      "cvd_ratio": 0.7177,
+      "total_volume_usd": 15266.62,
+      "obi_10": -0.0114,
+      "open_interest": 251693.2,
+      "delta_oi_z": -0.1,
+      "funding_rate": 1.25e-05,
+      "last_px": 0.22898,
+      "ticks_in_window": 171
+    },
+    "OP": {
+      "cvd_usd": -274.87,
+      "cvd_ratio": -0.0602,
+      "total_volume_usd": 4566.56,
+      "obi_10": -0.1951,
+      "open_interest": 579825.0,
+      "delta_oi_z": 0.05,
+      "funding_rate": -0.0004784916,
+      "last_px": 0.14562,
+      "ticks_in_window": 152
+    },
+    "TIA": {
+      "cvd_usd": 7245.92,
+      "cvd_ratio": 0.4259,
+      "total_volume_usd": 17014.97,
+      "obi_10": 0.1095,
+      "open_interest": 127649.4,
+      "delta_oi_z": -0.19,
+      "funding_rate": 0.0003243219,
+      "last_px": 0.50721,
+      "ticks_in_window": 152
+    },
+    "INJ": {
+      "cvd_usd": -147.42,
+      "cvd_ratio": -0.0385,
+      "total_volume_usd": 3831.46,
+      "obi_10": 0.09,
+      "open_interest": 4458.8,
+      "delta_oi_z": -1.1,
+      "funding_rate": 1.25e-05,
+      "last_px": 7.8678,
+      "ticks_in_window": 169
+    },
+    "RENDER": {
+      "cvd_usd": 100.93,
+      "cvd_ratio": 0.0088,
+      "total_volume_usd": 11437.2,
+      "obi_10": -0.0177,
+      "open_interest": 36754.0,
+      "delta_oi_z": 0.21,
+      "funding_rate": 1.25e-05,
+      "last_px": 2.0137,
+      "ticks_in_window": 151
+    }
+  }
+}
