@@ -289,7 +289,7 @@ def simulate_v10_7(start_idx, end_idx, title="", mode="v11"):
 
                 if sl_dist / fill_px >= 0.008:
                     # Расчет риска: плоский 1.0% (Base) либо динамический 1.3% - 2.2% (ML Boost)
-                    if mode == "v10_7_dynamic":
+                    if mode in ["v10_7_dynamic", "v11"]:
                         prob = float(trig.get("ml_prob", 0.50))
                         # Нормализация уверенности: от 0.50 (min) до 0.85 (max)
                         norm_prob = max(0.0, min(1.0, (prob - 0.50) / (0.85 - 0.50)))
@@ -540,59 +540,9 @@ def simulate_v10_7(start_idx, end_idx, title="", mode="v11"):
         print(f"{t['coin']:<7} | {t['dir']:<5} | {t['type']:<14} | {t['ml_prob']*100:<5.1f}%  | ${t['entry_px']:<8.2f} | ${t['exit_px']:<8.2f} | {pnl_str:<16} | {t['reason']}")
     print("=" * 85)
 
-# 1. In-Sample
-
-    # Надежный расчет метрик для A/B баттла
-    start_eq = equity_curve[0]
-    final_eq = equity_curve[-1]
-    net_val = final_eq - start_eq
-    pct_val = (net_val / start_eq) * 100.0
-
-    peak = start_eq
-    dd_val = 0.0
-    for eq in equity_curve:
-        if eq > peak:
-            peak = eq
-        dd = (peak - eq) / peak * 100.0
-        if dd > dd_val:
-            dd_val = dd
-
-    wins_pnl = 0.0
-    loss_pnl = 0.0
-    wins_cnt = 0
-    loss_cnt = 0
-
-    for item in long_trades:
-        if isinstance(item, str):
-            parts = [p.strip() for p in item.split("|")]
-            if len(parts) >= 7:
-                try:
-                    tok = parts[6].split()[0].replace("$", "")
-                    val = float(tok)
-                    if val > 0:
-                        wins_pnl += val
-                        wins_cnt += 1
-                    elif val < 0:
-                        loss_pnl += abs(val)
-                        loss_cnt += 1
-                except Exception:
-                    pass
-        elif isinstance(item, dict):
-            val = item.get("pnl_usd", item.get("pnl", 0.0))
-            if val > 0:
-                wins_pnl += val
-                wins_cnt += 1
-            elif val < 0:
-                loss_pnl += abs(val)
-                loss_cnt += 1
-
-    tot_tr = wins_cnt + loss_cnt
-    wr_val = (wins_cnt / tot_tr * 100.0) if tot_tr > 0 else 0.0
-    pf_val = (wins_pnl / loss_pnl) if loss_pnl > 0 else (999.0 if wins_pnl > 0 else 0.0)
-
     return {
-        "pnl_usd": net_val, "pnl_pct": pct_val, "win_rate": wr_val,
-        "pf": pf_val, "max_dd": dd_val, "trades": tot_tr
+        "pnl_usd": pnl_net, "pnl_pct": roi, "win_rate": wr,
+        "pf": pf, "max_dd": mdd, "trades": len(df_t)
     }
 
 
@@ -628,48 +578,63 @@ r_is_v11 = simulate_v10_7(min_warmup, split_idx, "1. IN-SAMPLE DYNAMIC (" + str(
 r_oos_v11 = simulate_v10_7(oos_start_idx, total_bars, "2. OUT-OF-SAMPLE DYNAMIC (" + str(oos_days) + " ДНЕЙ)", mode="v10_7_dynamic")
 
 print("")
-print("=" * 85)
-print("  ИТОГОВЫЙ БАТТЛ: v10.7 Base (1.0% Flat) vs v10.7 Dynamic Risk (ML-Kelly) НА " + str(tot_days) + " ДНЯХ")
-print("=" * 85)
-h_fmt = "{:<24} | {:<26} | {:<26}"
-print(h_fmt.format("МЕТРИКА", "v10.7 (1.0% Base)", "v10.7 Boost (1.3%-2.2%)"))
-print("-" * 85)
+print(">>> [РАУНД 3/3] ТЕСТИРОВАНИЕ v11 (CANDIDATE SCORING, DPL, 3 СЛОТА)...")
+r_is_v11_cand = simulate_v10_7(min_warmup, split_idx, "1. IN-SAMPLE v11 SCORING (" + str(is_days) + " ДНЕЙ)", mode="v11")
+r_oos_v11_cand = simulate_v10_7(oos_start_idx, total_bars, "2. OUT-OF-SAMPLE v11 SCORING (" + str(oos_days) + " ДНЕЙ)", mode="v11")
+
+print("")
+print("")
+print("=" * 115)
+print("  ИТОГОВЫЙ БАТТЛ: Base FIFO vs Dynamic FIFO vs v11 Candidate Scoring НА " + str(tot_days) + " ДНЯХ")
+print("=" * 115)
+h_fmt = "{:<24} | {:<26} | {:<26} | {:<26}"
+print(h_fmt.format("МЕТРИКА", "v10.7 (1.0% Base)", "v10.7 Dynamic (Kelly)", "v11 Candidate Scoring"))
+print("-" * 115)
 
 pnl_is_10 = "{:>+7.2f}% (${:>+7.2f})".format(r_is_v10["pnl_pct"], r_is_v10["pnl_usd"])
 pnl_is_11 = "{:>+7.2f}% (${:>+7.2f})".format(r_is_v11["pnl_pct"], r_is_v11["pnl_usd"])
-print(h_fmt.format("IS Прибыль (%)", pnl_is_10, pnl_is_11))
+pnl_is_c = "{:>+7.2f}% (${:>+7.2f})".format(r_is_v11_cand["pnl_pct"], r_is_v11_cand["pnl_usd"])
+print(h_fmt.format("IS Прибыль (%)", pnl_is_10, pnl_is_11, pnl_is_c))
 
 dd_is_10 = "{:>6.2f}%".format(r_is_v10["max_dd"])
 dd_is_11 = "{:>6.2f}%".format(r_is_v11["max_dd"])
-print(h_fmt.format("IS Max Drawdown", dd_is_10, dd_is_11))
+dd_is_c = "{:>6.2f}%".format(r_is_v11_cand["max_dd"])
+print(h_fmt.format("IS Max Drawdown", dd_is_10, dd_is_11, dd_is_c))
 
 pf_is_10 = "{:>6.2f}".format(r_is_v10["pf"])
 pf_is_11 = "{:>6.2f}".format(r_is_v11["pf"])
-print(h_fmt.format("IS Profit Factor", pf_is_10, pf_is_11))
+pf_is_c = "{:>6.2f}".format(r_is_v11_cand["pf"])
+print(h_fmt.format("IS Profit Factor", pf_is_10, pf_is_11, pf_is_c))
 
 tr_is_10 = "{} сд. ({:>5.1f}%)".format(r_is_v10["trades"], r_is_v10["win_rate"])
 tr_is_11 = "{} сд. ({:>5.1f}%)".format(r_is_v11["trades"], r_is_v11["win_rate"])
-print(h_fmt.format("IS Сделок (Win Rate)", tr_is_10, tr_is_11))
-print("-" * 85)
+tr_is_c = "{} сд. ({:>5.1f}%)".format(r_is_v11_cand["trades"], r_is_v11_cand["win_rate"])
+print(h_fmt.format("IS Сделок (Win Rate)", tr_is_10, tr_is_11, tr_is_c))
+print("-" * 115)
 
 pnl_oos_10 = "{:>+7.2f}% (${:>+7.2f})".format(r_oos_v10["pnl_pct"], r_oos_v10["pnl_usd"])
 pnl_oos_11 = "{:>+7.2f}% (${:>+7.2f})".format(r_oos_v11["pnl_pct"], r_oos_v11["pnl_usd"])
-print(h_fmt.format("OOS Прибыль (%)", pnl_oos_10, pnl_oos_11))
+pnl_oos_c = "{:>+7.2f}% (${:>+7.2f})".format(r_oos_v11_cand["pnl_pct"], r_oos_v11_cand["pnl_usd"])
+print(h_fmt.format("OOS Прибыль (%)", pnl_oos_10, pnl_oos_11, pnl_oos_c))
 
 dd_oos_10 = "{:>6.2f}%".format(r_oos_v10["max_dd"])
 dd_oos_11 = "{:>6.2f}%".format(r_oos_v11["max_dd"])
-print(h_fmt.format("OOS Max Drawdown", dd_oos_10, dd_oos_11))
+dd_oos_c = "{:>6.2f}%".format(r_oos_v11_cand["max_dd"])
+print(h_fmt.format("OOS Max Drawdown", dd_oos_10, dd_oos_11, dd_oos_c))
 
 pf_oos_10 = "{:>6.2f}".format(r_oos_v10["pf"])
 pf_oos_11 = "{:>6.2f}".format(r_oos_v11["pf"])
-print(h_fmt.format("OOS Profit Factor", pf_oos_10, pf_oos_11))
+pf_oos_c = "{:>6.2f}".format(r_oos_v11_cand["pf"])
+print(h_fmt.format("OOS Profit Factor", pf_oos_10, pf_oos_11, pf_oos_c))
 
 tr_oos_10 = "{} сд. ({:>5.1f}%)".format(r_oos_v10["trades"], r_oos_v10["win_rate"])
 tr_oos_11 = "{} сд. ({:>5.1f}%)".format(r_oos_v11["trades"], r_oos_v11["win_rate"])
-print(h_fmt.format("OOS Сделок (Win Rate)", tr_oos_10, tr_oos_11))
-print("-" * 85)
+tr_oos_c = "{} сд. ({:>5.1f}%)".format(r_oos_v11_cand["trades"], r_oos_v11_cand["win_rate"])
+print(h_fmt.format("OOS Сделок (Win Rate)", tr_oos_10, tr_oos_11, tr_oos_c))
+print("-" * 115)
 
 tot_10 = "${:>+7.2f}".format(r_is_v10["pnl_usd"] + r_oos_v10["pnl_usd"])
 tot_11 = "${:>+7.2f}".format(r_is_v11["pnl_usd"] + r_oos_v11["pnl_usd"])
-print(h_fmt.format("ИТОГО ЧИСТЫМИ ($)", tot_10, tot_11))
-print("=" * 85)
+tot_c = "${:>+7.2f}".format(r_is_v11_cand["pnl_usd"] + r_oos_v11_cand["pnl_usd"])
+print(h_fmt.format("ИТОГО ЧИСТЫМИ ($)", tot_10, tot_11, tot_c))
+print("=" * 115)
